@@ -29,7 +29,34 @@ def addGrayLayer(image):
     Output:
         an array of images with the channels RGBGray
     """
-    return np.concatenate((image, image[:,:,0].reshape((image.shape[0], image.shape[1],1))), axis=2)
+    gray = cv2.cvtColor(image, cv2.CV_HLS2GRAY)
+    return np.concatenate((image, gray.reshape((image.shape[0], image.shape[1],1))), axis=2)
+
+def addGradientLayer(image, sobel_kernel=3, magThresh=(0, 255), dirThresh=(0, np.pi/2)):
+    """
+    Adds a gray layer as a fourth channel to an image
+    
+    Input: 
+        image
+        
+    Output:
+        an array of images with the channels RGBGray
+    """
+    sobelx = cv2.Sobel(image[:,:,1], cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+    sobely = cv2.Sobel(image[:,:,1], cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+    # Calculate the gradient magnitude
+    gradMag = np.sqrt(sobelx**2 + sobely**2)
+    absGradDir = np.arctan2(np.absolute(sobely), np.absolute(sobelx))
+    # Rescale to 8 bit
+    scaleFactor = np.max(gradMag)/255
+    gradMag = (gradMag/scaleFactor).astype(np.uint8)
+    # Create a binary image of ones where thresholds are met, zeros otherwise
+    binaryOutput = np.zeros_like(gradMag)
+    binaryOutput[(gradMag >= magThresh[0]) & (gradMag <= magThresh[1]) &
+                    (absGradDir >= dirThresh[0]) & (absGradDir <= dirThresh[1])] = 1 
+    # Return the binary image
+    return np.concatenate((image, binaryOutput.reshape((image.shape[0], image.shape[1],1))) ,axis=2)
+    
     
 
 def applyNormalisation(image):
@@ -57,7 +84,7 @@ def preprocessImage(image, transform):
     """
     image = cv2.cvtColor(image, cv2.COLOR_RGB2HLS)
     image = cv2.convertScaleAbs(image, alpha=(1))
-    image = addGrayLayer(image)
+    image = addGradientLayer(image, 7, (100,255), (0, np.pi/2))
     image = np.concatenate((image, transform(image)), axis=2)
     return applyNormalisation(image)
 
@@ -66,7 +93,7 @@ def preprocessImages(arr, transform):
     This function represents the default preprocessing for 
     images to prepare them for the network
     """
-    return np.array([preprocessImage(image) for image in arr])
+    return np.array([preprocessImage(image, transform) for image in arr])
 
 
 def perspectiveTransform(img, M):
@@ -78,17 +105,14 @@ def shiftImg(arr, horizontal, vertical):
     """
         This function shifts an image horizontally and vertically
         Input:
-            horizontal - amplitude of shift in pixels (positive to the left
-            negative to the right)
-            vertical - aplitude of the ishift in pixels (positive upwards 
-            negative downwards)
+            horizontal - amplitude of shift in pixels (positive to the right
+            negative to the left)
+            vertical - aplitude of the ishift in pixels (positive downwards 
+            negative upwards)
     """
-    arr = arr.copy()
-    if(vertical>0):arr = np.concatenate((arr[vertical:,:],np.zeros((vertical,arr.shape[1],arr.shape[2]))), axis=0)
-    elif(vertical<0):arr = np.concatenate((np.zeros((np.abs(vertical),arr.shape[1],arr.shape[2])), arr[:vertical,:]), axis=0)
-    if(horizontal>0):arr = np.concatenate((arr[:,horizontal:],np.zeros((arr.shape[0],horizontal,arr.shape[2]))), axis=1)
-    elif(horizontal<0):arr = np.concatenate((np.zeros((arr.shape[0], np.abs(horizontal),arr.shape[2])), arr[:,:horizontal]), axis=1)
-    return arr
+    
+    M = np.float32([[1,0,1*horizontal],[0,1,vertical]])
+    return cv2.warpAffine(arr,M,(arr.shape[1], arr.shape[0]))
 
 def mirrorImage(img):
     """

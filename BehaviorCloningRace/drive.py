@@ -15,14 +15,16 @@ from io import BytesIO
 from keras.models import load_model
 from main import preprocessImages, customLoss
 from Preprocess import perspectiveTransform
-
+from matplotlib import image as mpimg
+import cv2
+import functools
 
 sio = socketio.Server()
 app = Flask(__name__)
 model = None
 prev_image_array = None
 
-img = mpimg.imread('../simulator/data/data/IMG/center_2016_12_01_13_30_48_287.jpg')
+img = mpimg.imread('./simulator/data/data/IMG/center_2016_12_01_13_30_48_287.jpg')
 h, w = img.shape[:2]
 src = np.float32([[w/2 - 57, h/2], [w/2 + 57, h/2], [w+140,h], [-140,h]])
 dst = np.float32([[w/4,0], [w*3/4,0], [w*3/4,h], [w/4,h]])
@@ -42,9 +44,9 @@ def telemetry(sid, data):
         # The current image from the center camera of the car
         imgString = data["image"]
         image = Image.open(BytesIO(base64.b64decode(imgString)))
-        image_array = np.asarray(image)
-        steering_angle = float(model.predict(preprocessImages(image_array, transform), batch_size=1))
-        throttle = 0.2
+        image_array = np.asarray(image).astype(np.uint8)
+        steering_angle = float(model.predict(preprocessImages(image_array[None, :, :, :], transform), batch_size=1))
+        throttle = (25. - float(speed))*.3
         print(steering_angle, throttle)
         send_control(steering_angle, throttle)
 

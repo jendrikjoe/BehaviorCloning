@@ -7,8 +7,6 @@ from keras.layers import Input, merge
 from keras.layers.convolutional import Convolution2D
 from keras.models import Model, load_model
 from sklearn.model_selection import train_test_split
-import numpy as np
-import cv2
 from sklearn.utils import shuffle
 from keras.layers.pooling import AveragePooling2D, MaxPooling2D
 from keras.layers.core import Activation, Dense, Flatten, Dropout, Lambda
@@ -18,6 +16,8 @@ from docutils.nodes import image
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 import functools
 from Preprocess import *
+import numpy as np
+
 LOADMODEL = False
 
 
@@ -27,6 +27,54 @@ FLAGS = flags.FLAGS
 # command line flags
 #flags.DEFINE_string('trainingCSV', '../simulator/simulator-linux/driving_log.csv', "training data")
 flags.DEFINE_string('trainingCSV', '../simulator/data/data/driving_log.csv', "training data")
+
+def produceExamples(dataShuffled, dataNew):
+    plt.figure(1, figsize=(16,9))
+    plt.hist(dataShuffled['steering'], bins=np.arange(-1.2, 1.3, .1), log=True)
+    plt.xlabel('steering angle')
+    plt.ylabel('log(# of occurence)')
+    plt.savefig('../distributionBeforeFiltering.png')
+    indices = np.random.randint(0,len(dataNew),20)
+    fig, ax = plt.subplots(nrows=5, ncols=4, figsize=((16,9)))
+    plt.tight_layout(pad=1.0, w_pad=0.5, h_pad=1.0)
+    for i, index in zip(range(20), indices):
+        ax[i//4, i%4].set_title('angle: %.3f' % dataNew.iloc[index]['steering'])
+        ax[i//4, i%4].imshow(mpimg.imread(dataNew.iloc[index]['center']))
+    plt.savefig('../samplesImages.png')
+    dataNew = shuffle(dataNew, random_state = 0)
+    plt.figure(3, figsize=(16,9))
+    plt.hist(dataNew['steering'], bins=np.arange(-1.2, 1.3, .1), log=True)
+    plt.xlabel('steering angle')
+    plt.ylabel('log(# of occurence)')
+    plt.savefig('../distributionAfterFiltering.png')
+    
+    index = np.random.randint(0,len(dataNew))
+    plt.figure(4, figsize=(8,4))
+    plt.title('Original, Steering: %.3f' % dataNew.iloc[index]['steering'])
+    plt.imshow(mpimg.imread(dataNew.iloc[index]['center']))
+    plt.savefig('../image.png')
+    plt.figure(5, figsize=(8,4))
+    steer = dataNew.iloc[index]['steering']
+    plt.title('Mirrored, Steering: %.3f' % (-1.*steer))
+    plt.imshow(mirrorImage(mpimg.imread(dataNew.iloc[index]['center'])))
+    plt.savefig('../flippedImage.png')
+    
+    plt.figure(6, figsize=(8,4))
+    image = mirrorImage(mpimg.imread(dataNew.iloc[index]['center']))
+    steer = dataNew.iloc[index]['steering']
+    shiftHor = np.random.randint(-20,21)
+    shiftVer = np.random.randint(-10,11)
+    steer *= (1-shiftVer/100)
+    steer += .1*shiftHor/(20)
+    image = shiftImg(image, shiftHor, shiftVer)
+    rot = np.random.randint(-10,11)
+    steer += .2*rot/(25)
+    steer = min(max(steer,-1),1)
+    image = rotateImage(image, rot)
+    plt.title('Augmented, Steering: %.3f' % steer)
+    plt.imshow(image)
+    plt.savefig('../augmentedImage.png')
+    plt.show()
 
 
 def generateTrainImagesFromPaths(data, batchSize, inputShape, outputShape, transform):
@@ -52,7 +100,6 @@ def generateTrainImagesFromPaths(data, batchSize, inputShape, outputShape, trans
             else:
                 image = np.array(mpimg.imread(row['center'].strip()))
                 label = np.array([row['steering'], row['throttle'], row['break']])
-            image = preprocessImage(image, transform)
             flip = np.random.random()
             if flip>.5:
                 image = mirrorImage(image)
@@ -62,16 +109,16 @@ def generateTrainImagesFromPaths(data, batchSize, inputShape, outputShape, trans
             shiftVer = np.random.randint(-10,11)
             image = shiftImg(image, shiftHor, shiftVer)
             label[0] *= (1-shiftVer/100)
-            label[0] -= .1*shiftHor/(20)
-            rot = np.random.randint(-10,11)
-            image = rotateImage(image, rot)
+            label[0] += .1*shiftHor/(20)
+            #rot = np.random.randint(-10,11)
+            #image = rotateImage(image, rot)
             # Add a part of the rotated angle, as it is counted counter-clockwise.
             # If you turn counter-clockwise, this looks like the car would be more left
             # and needs to drive to the right -> add some angle 
             # divide it by the maximum of the steering angle in deg ->25
-            label[0] += .2*rot/25
+            #label[0] += .2*rot/25
             label[0] = min(max(label[0],-1),1)
-            returnArr[i] = image
+            returnArr[i] = preprocessImage(image, transform)
             labels[i] = label
         yield({'input_1': returnArr},{'output': labels[:,0]})
                 
@@ -125,6 +172,8 @@ def main():
     M = cv2.getPerspectiveTransform(src, dst)
     invM = cv2.getPerspectiveTransform(dst, src)
     transform = functools.partial(perspectiveTransform, M = M)
+    plt.imshow(addGradientLayer(img, 7, (100, 255))[:,:,3])
+    plt.show()
     
     showSamplesCompared(img, transform, '', '', '')
     plt.xkcd()
@@ -160,6 +209,7 @@ def main():
                 
             removeArr.append(i)
         np.delete(indices, removeArr)
+    #produceExamples(dataShuffled, dataNew)
     del dataShuffled, data
     
     print(len(dataNew))
